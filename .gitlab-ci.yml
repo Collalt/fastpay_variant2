@@ -1,0 +1,16 @@
+stages:
+  - test
+
+integration_tests:
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt
+  script:
+    - mkdir -p docs
+    - python -m pytest -v | tee docs/test-log.txt
+  artifacts:
+    when: always
+    paths:
+      - docs/test-log.txt
