@@ -28,6 +28,17 @@ def show_demo_case(title: str, checking: str, expected: str) -> None:
     print("=" * 78)
 
 
+def show_actual_response(response, bank_post: Mock | None = None) -> None:
+    """Print the actual API response and mocked gateway calls for CI demo output."""
+    print(f"ACTUAL HTTP STATUS: {response.status_code}")
+    try:
+        print(f"ACTUAL RESPONSE: {response.json()}")
+    except ValueError:
+        print(f"ACTUAL RESPONSE TEXT: {response.text}")
+    if bank_post is not None:
+        print(f"MOCKED BANK CALLS: {bank_post.call_count}")
+
+
 def gateway_response(status_code: int, body: dict) -> Mock:
     response = Mock()
     response.status_code = status_code
@@ -49,6 +60,8 @@ def test_successful_authorization(fastpay_server):
         )
 
         response = api_post(f"{fastpay_server}/v1/payment", json=VALID_PAYMENT, timeout=2)
+
+    show_actual_response(response, bank_post)
 
     assert response.status_code == 200
     assert response.json() == {"transaction_id": "bank_txn_001", "status": "authorized"}
@@ -74,6 +87,8 @@ def test_insufficient_funds_returns_declined(fastpay_server):
 
         response = api_post(f"{fastpay_server}/v1/payment", json=VALID_PAYMENT, timeout=2)
 
+    show_actual_response(response, bank_post)
+
     assert response.status_code == 200
     assert response.json()["transaction_id"] == "bank_txn_002"
     assert response.json()["status"] == "declined"
@@ -93,6 +108,8 @@ def test_invalid_cvv_validation_error_and_no_gateway_call(fastpay_server, bad_cv
 
     with patch("fastpay.gateway.requests.post") as bank_post:
         response = api_post(f"{fastpay_server}/v1/payment", json=payload, timeout=2)
+
+    show_actual_response(response, bank_post)
 
     assert response.status_code == 400
     assert response.json()["status"] == "validation_error"
@@ -115,6 +132,8 @@ def test_gateway_timeout_is_retried_then_authorized(fastpay_server):
 
         response = api_post(f"{fastpay_server}/v1/payment", json=VALID_PAYMENT, timeout=3)
 
+    show_actual_response(response, bank_post)
+
     assert response.status_code == 200
     assert response.json() == {"transaction_id": "bank_txn_003", "status": "authorized"}
     assert bank_post.call_count == 2
@@ -134,6 +153,8 @@ def test_gateway_timeout_after_retry_returns_504(fastpay_server):
         ]
 
         response = api_post(f"{fastpay_server}/v1/payment", json=VALID_PAYMENT, timeout=3)
+
+    show_actual_response(response, bank_post)
 
     assert response.status_code == 504
     assert response.json()["status"] == "gateway_timeout"
@@ -155,8 +176,14 @@ def test_pan_and_cvv_are_not_written_to_logs(fastpay_server, caplog):
 
         response = api_post(f"{fastpay_server}/v1/payment", json=VALID_PAYMENT, timeout=2)
 
+    show_actual_response(response, bank_post)
+
     assert response.status_code == 200
     log_text = "\n".join(record.getMessage() for record in caplog.records)
+    print(f"FULL PAN FOUND IN LOGS: {VALID_PAYMENT['card_number'] in log_text}")
+    print(f"CVV FOUND IN LOGS: {VALID_PAYMENT['cvv'] in log_text}")
+    print("MASKED PAN FOUND IN LOGS: " + str("411111******1111" in log_text))
+    print("MASKED CVV FOUND IN LOGS: " + str("***" in log_text))
     assert VALID_PAYMENT["card_number"] not in log_text
     assert VALID_PAYMENT["cvv"] not in log_text
     assert "411111******1111" in log_text

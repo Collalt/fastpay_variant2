@@ -149,10 +149,13 @@ FASTPAY VARIANT 2 - CI DEMO CHECKLIST
 SCENARIO: Gateway timeout is retried and then succeeds
 CHECKING: The first mocked bank call raises timeout, the second returns approved.
 EXPECTED: HTTP 200, status=authorized, exactly two gateway calls.
+ACTUAL HTTP STATUS: 200
+ACTUAL RESPONSE: {'transaction_id': 'bank_txn_003', 'status': 'authorized'}
+MOCKED BANK CALLS: 2
 PASSED
 ```
 
-Так видно не только зелёный статус, но и смысл проверки.
+Так видно не только зелёный статус, но и фактический ответ API.
 
 ## Test Double в проекте
 
