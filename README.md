@@ -48,8 +48,14 @@ pytest + requests -> FastPay HTTP API -> validation -> bank gateway client -> mo
 | `test_successful_authorization` | Банк вернул `approved`, FastPay отвечает `authorized` | Основной сценарий оплаты работает корректно |
 | `test_insufficient_funds_returns_declined` | Банк вернул `declined`, API не считает это технической ошибкой | Нет ложной успешной оплаты при нехватке средств |
 | `test_invalid_cvv_validation_error_and_no_gateway_call` | Некорректный CVV отклоняется до вызова банка | Меньше fraud-рисков и лишних внешних запросов |
+| `test_invalid_payment_payload_returns_400_without_gateway_call` | Неверные `amount`, `expiry`, `merchant_id` отклоняются до банка | API не отправляет заведомо плохие платежи во внешний шлюз |
+| `test_missing_required_field_returns_400_without_gateway_call` | Отсутствие обязательного поля даёт `validation_error` | Контракт API защищён от неполных запросов |
 | `test_gateway_timeout_is_retried_then_authorized` | Первый вызов банка падает по timeout, второй успешен | Проверена retry logic при временном сбое |
 | `test_gateway_timeout_after_retry_returns_504` | Оба вызова банка падают по timeout | API возвращает понятный `504`, а не зависает |
+| `test_gateway_technical_error_returns_502` | Банк вернул HTTP 500 | Технический сбой банка не превращается в успешный платёж |
+| `test_unknown_gateway_status_returns_502` | Банк вернул неизвестный статус | API безопасно обрабатывает нарушение контракта внешней системы |
+| `test_invalid_json_returns_400` | Клиент отправил битый JSON | API возвращает понятную ошибку валидации |
+| `test_unknown_endpoint_returns_404` | Запрос ушёл не на тот endpoint | HTTP-контракт явно отклоняет неизвестный маршрут |
 | `test_pan_and_cvv_are_not_written_to_logs` | Полный PAN и CVV не попадают в логи | Снижается риск нарушения PCI DSS |
 
 ## Принятые решения
@@ -81,9 +87,11 @@ fastpay_variant2/
 |   `-- __init__.py
 |-- tests/
 |   |-- conftest.py         # запуск тестового HTTP-сервера
+|   |-- demo_checklist.py   # чеклист требований для CI/demo вывода
 |   `-- test_payment_api.py # интеграционные тесты
 |-- docs/
 |   `-- test-log.txt        # лог локального запуска тестов
+|-- demo.py                 # красивый локальный запуск демо
 |-- .github/workflows/tests.yml
 |-- .gitlab-ci.yml
 |-- pyproject.toml
@@ -97,7 +105,7 @@ fastpay_variant2/
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest -v
+python demo.py
 ```
 
 Для Windows PowerShell:
@@ -106,7 +114,13 @@ python -m pytest -v
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python -m pytest -v
+python demo.py
+```
+
+Обычный короткий запуск тестов:
+
+```bash
+python -m pytest -q
 ```
 
 ## Лог выполнения тестов
@@ -116,7 +130,7 @@ python -m pytest -v
 Краткий результат:
 
 ```text
-10 passed
+21 passed
 ```
 
 ## CI/CD
@@ -128,7 +142,7 @@ Pipeline выполняет:
 1. checkout репозитория;
 2. установку Python;
 3. установку зависимостей;
-4. запуск `python -m pytest -v`;
+4. запуск `python demo.py`;
 5. сохранение `docs/test-log.txt` как артефакта CI.
 
 Такой pipeline предотвращает регрессии: если разработчик случайно сломает обработку `declined`, retry logic, валидацию CVV или маскирование логов, merge будет виден как неготовый из-за упавших тестов.

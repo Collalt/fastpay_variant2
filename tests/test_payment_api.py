@@ -96,6 +96,26 @@ def test_insufficient_funds_returns_declined(fastpay_server):
     bank_post.assert_called_once()
 
 
+def test_bank_approved_without_transaction_id_generates_local_id(fastpay_server):
+    show_demo_case(
+        "Bank approves payment without transaction_id",
+        "FastPay receives approved from bank, but the gateway response has no transaction_id.",
+        "HTTP 200, status=authorized, FastPay generates a local txn_* identifier.",
+    )
+
+    with patch("fastpay.gateway.requests.post") as bank_post:
+        bank_post.return_value = gateway_response(200, {"status": "approved"})
+
+        response = api_post(f"{fastpay_server}/v1/payment", json=VALID_PAYMENT, timeout=2)
+
+    show_actual_response(response, bank_post)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "authorized"
+    assert response.json()["transaction_id"].startswith("txn_")
+    bank_post.assert_called_once()
+
+
 @pytest.mark.parametrize("bad_cvv", ["", "12", "12345", "12a", None])
 def test_invalid_cvv_validation_error_and_no_gateway_call(fastpay_server, bad_cvv):
     show_demo_case(
@@ -114,6 +134,61 @@ def test_invalid_cvv_validation_error_and_no_gateway_call(fastpay_server, bad_cv
     assert response.status_code == 400
     assert response.json()["status"] == "validation_error"
     assert "CVV" in response.json()["error"]
+    bank_post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_error"),
+    [
+        ("amount", "0", "Amount must be positive"),
+        ("amount", "-10.00", "Amount must be positive"),
+        ("amount", "not-a-number", "Invalid amount"),
+        ("expiry", "13/30", "Invalid expiry"),
+        ("merchant_id", "   ", "Invalid merchant_id"),
+    ],
+)
+def test_invalid_payment_payload_returns_400_without_gateway_call(
+    fastpay_server,
+    field,
+    value,
+    expected_error,
+):
+    show_demo_case(
+        f"Payload validation rejects invalid {field}: {value!r}",
+        "FastPay validates payment fields before calling the external bank.",
+        f"HTTP 400, error contains {expected_error!r}, mocked bank gateway is not called.",
+    )
+
+    payload = {**VALID_PAYMENT, field: value}
+
+    with patch("fastpay.gateway.requests.post") as bank_post:
+        response = api_post(f"{fastpay_server}/v1/payment", json=payload, timeout=2)
+
+    show_actual_response(response, bank_post)
+
+    assert response.status_code == 400
+    assert response.json()["status"] == "validation_error"
+    assert expected_error in response.json()["error"]
+    bank_post.assert_not_called()
+
+
+def test_missing_required_field_returns_400_without_gateway_call(fastpay_server):
+    show_demo_case(
+        "Payload validation rejects missing required field",
+        "FastPay receives a request without merchant_id.",
+        "HTTP 400, status=validation_error, mocked bank gateway is not called.",
+    )
+
+    payload = {key: value for key, value in VALID_PAYMENT.items() if key != "merchant_id"}
+
+    with patch("fastpay.gateway.requests.post") as bank_post:
+        response = api_post(f"{fastpay_server}/v1/payment", json=payload, timeout=2)
+
+    show_actual_response(response, bank_post)
+
+    assert response.status_code == 400
+    assert response.json()["status"] == "validation_error"
+    assert "merchant_id" in response.json()["error"]
     bank_post.assert_not_called()
 
 
@@ -159,6 +234,84 @@ def test_gateway_timeout_after_retry_returns_504(fastpay_server):
     assert response.status_code == 504
     assert response.json()["status"] == "gateway_timeout"
     assert bank_post.call_count == 2
+
+
+def test_gateway_technical_error_returns_502(fastpay_server):
+    show_demo_case(
+        "Bank gateway returns a technical 500 error",
+        "The mocked bank gateway responds with HTTP 500.",
+        "HTTP 502, status=gateway_error, one gateway call.",
+    )
+
+    with patch("fastpay.gateway.requests.post") as bank_post:
+        bank_post.return_value = gateway_response(500, {"status": "error"})
+
+        response = api_post(f"{fastpay_server}/v1/payment", json=VALID_PAYMENT, timeout=2)
+
+    show_actual_response(response, bank_post)
+
+    assert response.status_code == 502
+    assert response.json()["status"] == "gateway_error"
+    bank_post.assert_called_once()
+
+
+def test_unknown_gateway_status_returns_502(fastpay_server):
+    show_demo_case(
+        "Bank gateway returns an unknown business status",
+        "The mocked bank gateway responds with an unsupported status value.",
+        "HTTP 502, status=gateway_error, transaction_id is preserved for diagnostics.",
+    )
+
+    with patch("fastpay.gateway.requests.post") as bank_post:
+        bank_post.return_value = gateway_response(
+            200,
+            {"transaction_id": "bank_txn_005", "status": "manual_review"},
+        )
+
+        response = api_post(f"{fastpay_server}/v1/payment", json=VALID_PAYMENT, timeout=2)
+
+    show_actual_response(response, bank_post)
+
+    assert response.status_code == 502
+    assert response.json()["transaction_id"] == "bank_txn_005"
+    assert response.json()["status"] == "gateway_error"
+    bank_post.assert_called_once()
+
+
+def test_invalid_json_returns_400(fastpay_server):
+    show_demo_case(
+        "API rejects malformed JSON",
+        "Client sends a broken JSON body to POST /v1/payment.",
+        "HTTP 400, status=validation_error, request is rejected before payment processing.",
+    )
+
+    response = api_post(
+        f"{fastpay_server}/v1/payment",
+        data="{not-valid-json",
+        headers={"Content-Type": "application/json"},
+        timeout=2,
+    )
+
+    show_actual_response(response)
+
+    assert response.status_code == 400
+    assert response.json()["status"] == "validation_error"
+    assert response.json()["error"] == "Invalid JSON"
+
+
+def test_unknown_endpoint_returns_404(fastpay_server):
+    show_demo_case(
+        "API rejects unknown endpoint",
+        "Client sends POST request to a path outside the payment API contract.",
+        "HTTP 404, error=not_found.",
+    )
+
+    response = api_post(f"{fastpay_server}/v1/unknown", json=VALID_PAYMENT, timeout=2)
+
+    show_actual_response(response)
+
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
 
 
 def test_pan_and_cvv_are_not_written_to_logs(fastpay_server, caplog):

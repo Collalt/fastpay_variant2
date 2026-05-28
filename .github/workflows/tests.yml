@@ -26,9 +26,7 @@ jobs:
 
       - name: Run FastPay integration tests
         run: |
-          mkdir -p docs
-          python -m tests.demo_checklist | tee docs/test-log.txt
-          python -m pytest -vv -s --tb=short | tee -a docs/test-log.txt
+          python demo.py
 
       - name: Upload test log
         if: always()
