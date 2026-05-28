@@ -132,6 +132,18 @@ Pipeline выполняет:
 
 Такой pipeline предотвращает регрессии: если разработчик случайно сломает обработку `declined`, retry logic, валидацию CVV или маскирование логов, merge будет виден как неготовый из-за упавших тестов.
 
+Для демо удобно открыть **Actions -> fastpay-tests -> integration-tests -> Run FastPay integration tests**.  
+В логе перед каждым тестом выводится карточка:
+
+```text
+SCENARIO: Gateway timeout is retried and then succeeds
+CHECKING: The first mocked bank call raises timeout, the second returns approved.
+EXPECTED: HTTP 200, status=authorized, exactly two gateway calls.
+PASSED
+```
+
+Так видно не только зелёный статус, но и смысл проверки.
+
 ## Test Double в проекте
 
 | Вид | Где применён | Зачем |

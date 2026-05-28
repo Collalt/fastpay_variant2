@@ -19,6 +19,15 @@ VALID_PAYMENT = {
 }
 
 
+def show_demo_case(title: str, checking: str, expected: str) -> None:
+    """Print a readable test card for CI demo output."""
+    print("\n" + "=" * 78)
+    print(f"SCENARIO: {title}")
+    print(f"CHECKING: {checking}")
+    print(f"EXPECTED: {expected}")
+    print("=" * 78)
+
+
 def gateway_response(status_code: int, body: dict) -> Mock:
     response = Mock()
     response.status_code = status_code
@@ -27,6 +36,12 @@ def gateway_response(status_code: int, body: dict) -> Mock:
 
 
 def test_successful_authorization(fastpay_server):
+    show_demo_case(
+        "Successful payment authorization",
+        "FastPay sends valid payment data to the mocked bank gateway.",
+        "HTTP 200, status=authorized, transaction_id from the bank, gateway called once.",
+    )
+
     with patch("fastpay.gateway.requests.post") as bank_post:
         bank_post.return_value = gateway_response(
             200,
@@ -41,6 +56,12 @@ def test_successful_authorization(fastpay_server):
 
 
 def test_insufficient_funds_returns_declined(fastpay_server):
+    show_demo_case(
+        "Bank declines payment because of insufficient funds",
+        "FastPay receives a business decline from the mocked bank gateway.",
+        "HTTP 200, status=declined, reason=insufficient_funds, no false authorization.",
+    )
+
     with patch("fastpay.gateway.requests.post") as bank_post:
         bank_post.return_value = gateway_response(
             200,
@@ -62,6 +83,12 @@ def test_insufficient_funds_returns_declined(fastpay_server):
 
 @pytest.mark.parametrize("bad_cvv", ["", "12", "12345", "12a", None])
 def test_invalid_cvv_validation_error_and_no_gateway_call(fastpay_server, bad_cvv):
+    show_demo_case(
+        f"CVV validation rejects invalid value: {bad_cvv!r}",
+        "FastPay validates CVV before calling the external bank.",
+        "HTTP 400, status=validation_error, mocked bank gateway is not called.",
+    )
+
     payload = {**VALID_PAYMENT, "cvv": bad_cvv}
 
     with patch("fastpay.gateway.requests.post") as bank_post:
@@ -74,6 +101,12 @@ def test_invalid_cvv_validation_error_and_no_gateway_call(fastpay_server, bad_cv
 
 
 def test_gateway_timeout_is_retried_then_authorized(fastpay_server):
+    show_demo_case(
+        "Gateway timeout is retried and then succeeds",
+        "The first mocked bank call raises timeout, the second returns approved.",
+        "HTTP 200, status=authorized, exactly two gateway calls.",
+    )
+
     with patch("fastpay.gateway.requests.post") as bank_post:
         bank_post.side_effect = [
             requests.Timeout("network timeout"),
@@ -88,6 +121,12 @@ def test_gateway_timeout_is_retried_then_authorized(fastpay_server):
 
 
 def test_gateway_timeout_after_retry_returns_504(fastpay_server):
+    show_demo_case(
+        "Gateway timeout remains after retry",
+        "Both mocked bank calls raise timeout.",
+        "HTTP 504, status=gateway_timeout, exactly two gateway calls.",
+    )
+
     with patch("fastpay.gateway.requests.post") as bank_post:
         bank_post.side_effect = [
             requests.Timeout("network timeout 1"),
@@ -102,6 +141,12 @@ def test_gateway_timeout_after_retry_returns_504(fastpay_server):
 
 
 def test_pan_and_cvv_are_not_written_to_logs(fastpay_server, caplog):
+    show_demo_case(
+        "PAN and CVV are masked in logs",
+        "FastPay processes a valid payment and writes operational logs.",
+        "Full PAN and CVV are absent; masked PAN and *** are present.",
+    )
+
     with patch("fastpay.gateway.requests.post") as bank_post:
         bank_post.return_value = gateway_response(
             200,
