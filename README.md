@@ -44,6 +44,7 @@ pytest + requests -> FastPay HTTP API -> validation -> bank gateway client -> mo
 
 | Тест | Что проверяет | Почему важно для FinTech |
 |---|---|---|
+| `unittest.mock.patch` в тестах | Подменяет `fastpay.gateway.requests.post` | Внешний банк имитируется mock-объектом, реальные сетевые вызовы не выполняются |
 | `test_successful_authorization` | Банк вернул `approved`, FastPay отвечает `authorized` | Основной сценарий оплаты работает корректно |
 | `test_insufficient_funds_returns_declined` | Банк вернул `declined`, API не считает это технической ошибкой | Нет ложной успешной оплаты при нехватке средств |
 | `test_invalid_cvv_validation_error_and_no_gateway_call` | Некорректный CVV отклоняется до вызова банка | Меньше fraud-рисков и лишних внешних запросов |
@@ -133,7 +134,16 @@ Pipeline выполняет:
 Такой pipeline предотвращает регрессии: если разработчик случайно сломает обработку `declined`, retry logic, валидацию CVV или маскирование логов, merge будет виден как неготовый из-за упавших тестов.
 
 Для демо удобно открыть **Actions -> fastpay-tests -> integration-tests -> Run FastPay integration tests**.  
-В логе перед каждым тестом выводится карточка:
+В начале CI-лога выводится чеклист требований из задания:
+
+```text
+FASTPAY VARIANT 2 - CI DEMO CHECKLIST
+1. REQUIREMENT: Use mocks for the external bank gateway
+   COVERED BY:  unittest.mock.patch replaces fastpay.gateway.requests.post
+   EXPECTED:    Bank responses are simulated; no real bank network call is made.
+```
+
+А перед каждым тестом выводится карточка:
 
 ```text
 SCENARIO: Gateway timeout is retried and then succeeds
